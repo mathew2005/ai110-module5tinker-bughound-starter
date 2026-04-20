@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "WebFetch(domain:api.github.com)"
+    ]
+  }
+}
