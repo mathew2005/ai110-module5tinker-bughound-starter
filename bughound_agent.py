@@ -82,6 +82,15 @@ class BugHoundAgent:
             self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
+        raw_count = len(issues)
+        issues = [i for i in issues if self._is_valid_issue(i)]
+        dropped = raw_count - len(issues)
+        if dropped:
+            self._log("ANALYZE", f"Dropped {dropped} malformed issue(s) from LLM output.")
+        if raw_count > 0 and not issues:
+            self._log("ANALYZE", "All LLM issues failed schema check. Falling back to heuristics.")
+            return self._heuristic_analyze(code_snippet)
+
         return issues
 
     def propose_fix(self, code_snippet: str, issues: List[Dict[str, str]]) -> str:
@@ -117,6 +126,10 @@ class BugHoundAgent:
         if not cleaned:
             self._log("ACT", "LLM returned empty output. Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
+
+        if not self._validate_python_syntax(cleaned):
+            self._log("ACT", "Fixed code has syntax errors. Rejecting fix and returning original.")
+            return code_snippet
 
         return cleaned
 
@@ -225,6 +238,19 @@ class BugHoundAgent:
         if match:
             return match.group(1)
         return text
+
+    def _validate_python_syntax(self, code: str) -> bool:
+        """Guardrail: verify that the fixed code parses as valid Python."""
+        try:
+            compile(code, "<string>", "exec")
+            return True
+        except SyntaxError:
+            return False
+
+    def _is_valid_issue(self, issue: Dict[str, str]) -> bool:
+        severity = str(issue.get("severity", "")).strip().lower()
+        msg = str(issue.get("msg", "")).strip()
+        return severity in {"low", "medium", "high"} and bool(msg)
 
     def _can_call_llm(self) -> bool:
         return self.client is not None and hasattr(self.client, "complete")
